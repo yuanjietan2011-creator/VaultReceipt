@@ -7,7 +7,7 @@ import multer from 'multer';
 import { GoogleGenAI, Type } from '@google/genai';
 import type { ExtractedReceiptFields, ReceiptRecord } from './src/types/receipt.ts';
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const DATA_DIR = path.resolve(process.cwd(), '.vault-data');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const MASTER_KEY_FILE = path.join(DATA_DIR, '.master.key');
