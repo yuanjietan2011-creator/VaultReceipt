@@ -1,0 +1,174 @@
+{
+  "entities": {
+    "UserVaultProfile": {
+      "title": "UserVaultProfile",
+      "description": "Private freelancer vault profile storing isolated user identity metadata.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the vault owner."
+        },
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 254,
+          "description": "Verified account email address."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "Account display name."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last update timestamp."
+        }
+      },
+      "required": ["uid", "email", "displayName", "createdAt", "updatedAt"]
+    },
+    "Receipt": {
+      "title": "Receipt",
+      "description": "Cryptographically sealed receipt or invoice record with SHA-256 digest and Gemini extracted tax fields.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique receipt record ID."
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the owning user."
+        },
+        "sha256Hash": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Lowercase hex SHA-256 hash of raw receipt image bytes."
+        },
+        "uploadedAtUtc": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 40,
+          "description": "Exact UTC timestamp recorded by the server at capture."
+        },
+        "fileName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "description": "Original receipt image filename."
+        },
+        "fileSizeBytes": {
+          "type": "number",
+          "description": "Byte size of raw receipt image."
+        },
+        "mimeType": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 64,
+          "description": "Image MIME type."
+        },
+        "imageUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "description": "Signed server endpoint URL for viewing or downloading the encrypted raw receipt image."
+        },
+        "merchant_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140,
+          "description": "Extracted merchant or vendor name."
+        },
+        "receipt_date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Transaction date in YYYY-MM-DD format."
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "description": "Three-letter ISO 4217 currency code."
+        },
+        "subtotal": {
+          "type": "number",
+          "description": "Pre-tax expense subtotal."
+        },
+        "gst_amount": {
+          "type": "number",
+          "description": "GST, VAT, or sales tax amount."
+        },
+        "total_amount": {
+          "type": "number",
+          "description": "Total amount paid."
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Expense tax category."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp on update."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "sha256Hash",
+        "uploadedAtUtc",
+        "fileName",
+        "fileSizeBytes",
+        "mimeType",
+        "imageUrl",
+        "merchant_name",
+        "receipt_date",
+        "currency",
+        "subtotal",
+        "gst_amount",
+        "total_amount",
+        "category",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserVaultProfile" },
+      "description": "Private authenticated freelancer profile (PII isolated to owner)."
+    },
+    "/receipts/{receiptId}": {
+      "schema": { "$ref": "#/entities/Receipt" },
+      "description": "Cryptographically sealed receipt and invoice tax records owned by individual users."
+    }
+  }
+}

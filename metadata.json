@@ -1,0 +1,6 @@
+{
+  "name": "VaultReceipt — Encrypted Freelance Invoice & Receipt Scanner",
+  "description": "Cryptographic SHA-256 receipt vault with Gemini AI tax extraction, tamper verification, and monthly tax export.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
