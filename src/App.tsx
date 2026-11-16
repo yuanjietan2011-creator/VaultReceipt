@@ -18,7 +18,13 @@ import { TaxDashboardView } from './components/TaxDashboardView';
 import { VaultAuthScreen } from './components/VaultAuthScreen';
 import { VerifyView } from './components/VerifyView';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
-import type { ExtractedReceiptFields, ReceiptRecord, VaultUser } from './types/receipt';
+import type {
+  EarningInput,
+  EarningRecord,
+  ExtractedReceiptFields,
+  ReceiptRecord,
+  VaultUser,
+} from './types/receipt';
 
 type ActiveTab = 'capture' | 'dashboard' | 'verify';
 
@@ -28,7 +34,9 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('capture');
   const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
+  const [earnings, setEarnings] = useState<EarningRecord[]>([]);
   const [isLoadingReceipts, setIsLoadingReceipts] = useState(false);
+  const [isLoadingEarnings, setIsLoadingEarnings] = useState(false);
   const [vaultError, setVaultError] = useState<string | null>(null);
 
   // Listen to Firebase Auth state and sync user profile in Firestore
@@ -37,6 +45,7 @@ export default function App() {
       if (!firebaseUser) {
         setUser(null);
         setReceipts([]);
+        setEarnings([]);
         setVaultError(null);
         setIsAuthReady(true);
         return;
@@ -78,13 +87,14 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Attach real-time Firestore listener ONLY once auth is ready and user is signed in
+  // Attach real-time Firestore listeners ONLY once auth is ready and user is signed in
   useEffect(() => {
     if (!isAuthReady || !user) {
       return;
     }
 
     setIsLoadingReceipts(true);
+    setIsLoadingEarnings(true);
     setVaultError(null);
 
     const receiptsQuery = query(
@@ -92,7 +102,7 @@ export default function App() {
       where('userId', '==', user.uid)
     );
 
-    const unsubscribe = onSnapshot(
+    const unsubscribeReceipts = onSnapshot(
       receiptsQuery,
       (snapshot) => {
         const list = snapshot.docs.map((d) => d.data() as ReceiptRecord);
@@ -112,7 +122,39 @@ export default function App() {
       }
     );
 
-    return () => unsubscribe();
+    const earningsQuery = query(
+      collection(db, 'earnings'),
+      where('userId', '==', user.uid)
+    );
+
+    const unsubscribeEarnings = onSnapshot(
+      earningsQuery,
+      (snapshot) => {
+        const list = snapshot.docs.map((d) => d.data() as EarningRecord);
+        list.sort((a, b) => {
+          const dateDiff = (b.earned_date || '').localeCompare(a.earned_date || '');
+          if (dateDiff !== 0) return dateDiff;
+          return (a.client_name || '').localeCompare(b.client_name || '');
+        });
+        setEarnings(list);
+        setIsLoadingEarnings(false);
+      },
+      (error) => {
+        setIsLoadingEarnings(false);
+        try {
+          handleFirestoreError(error, OperationType.LIST, 'earnings');
+        } catch (wrappedErr) {
+          setVaultError(
+            wrappedErr instanceof Error ? wrappedErr.message : 'Firestore read permission denied.'
+          );
+        }
+      }
+    );
+
+    return () => {
+      unsubscribeReceipts();
+      unsubscribeEarnings();
+    };
   }, [isAuthReady, user]);
 
   const handleSignOut = async () => {
@@ -162,6 +204,68 @@ export default function App() {
     }
   };
 
+  const handleAddEarning = async (input: EarningInput) => {
+    if (!user) {
+      throw new Error('You must be signed in to record company earnings.');
+    }
+
+    const client_name = input.client_name.trim().slice(0, 140);
+    if (!client_name) {
+      throw new Error('Client or income source name is required.');
+    }
+
+    const earned_date = input.earned_date.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(earned_date)) {
+      throw new Error('Earned date must be in YYYY-MM-DD format.');
+    }
+
+    const currency = input.currency.trim().toUpperCase().slice(0, 3);
+    if (!/^[A-Z]{3}$/.test(currency)) {
+      throw new Error('Currency must be a 3-letter ISO code (e.g. USD, SGD, AUD).');
+    }
+
+    const amount = Math.round(Number(input.amount) * 100) / 100;
+    const gst_collected = Math.round(Number(input.gst_collected || 0) * 100) / 100;
+    if (!Number.isFinite(amount) || amount < 0) {
+      throw new Error('Earned amount must be 0 or greater.');
+    }
+    if (!Number.isFinite(gst_collected) || gst_collected < 0) {
+      throw new Error('GST collected must be 0 or greater.');
+    }
+
+    const net_revenue = Math.round((amount - gst_collected) * 100) / 100;
+    const description = input.description.trim().slice(0, 200);
+    const id = crypto.randomUUID();
+    const earningPath = `earnings/${id}`;
+
+    try {
+      await setDoc(doc(db, 'earnings', id), {
+        id,
+        userId: user.uid,
+        client_name,
+        description,
+        earned_date,
+        currency,
+        amount,
+        gst_collected,
+        net_revenue,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      handleFirestoreError(err, OperationType.CREATE, earningPath);
+    }
+  };
+
+  const handleDeleteEarning = async (id: string) => {
+    const earningPath = `earnings/${id}`;
+    try {
+      await deleteDoc(doc(db, 'earnings', id));
+    } catch (err) {
+      handleFirestoreError(err, OperationType.DELETE, earningPath);
+    }
+  };
+
   if (!isAuthReady) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -178,16 +282,16 @@ export default function App() {
   }
 
   const navItems: { id: ActiveTab; label: string; shortLabel: string; icon: typeof Camera }[] = [
-    { id: 'capture', label: 'Scan & Seal', shortLabel: 'Scan', icon: Camera },
-    { id: 'dashboard', label: 'Tax Ledger', shortLabel: 'Ledger', icon: FileSpreadsheet },
+    { id: 'capture', label: 'Scan Receipt', shortLabel: 'Scan', icon: Camera },
+    { id: 'dashboard', label: 'Earnings Ledger', shortLabel: 'Earnings', icon: FileSpreadsheet },
     { id: 'verify', label: 'Verify Integrity', shortLabel: 'Verify', icon: ShieldCheck },
   ];
 
   const pageTitle =
     activeTab === 'capture'
-      ? 'Receipt Capture & SHA-256 Sealing'
+      ? 'Receipt Capture & Earnings Sealing'
       : activeTab === 'dashboard'
-        ? 'Tax Dashboard & Monthly Ledger'
+        ? 'Company Earnings & Monthly Totals'
         : 'Tamper-Verification Audit';
 
   return (
@@ -291,6 +395,8 @@ export default function App() {
 
           {activeTab === 'capture' && (
             <CaptureView
+              receipts={receipts}
+              earnings={earnings}
               onUpdateReceipt={handleUpdateReceiptFields}
               onOpenLedger={() => setActiveTab('dashboard')}
             />
@@ -300,9 +406,12 @@ export default function App() {
             <TaxDashboardView
               user={user}
               receipts={receipts}
-              isLoading={isLoadingReceipts}
+              earnings={earnings}
+              isLoading={isLoadingReceipts || isLoadingEarnings}
               onDeleteReceipt={handleDeleteReceipt}
               onUpdateReceipt={handleUpdateReceiptFields}
+              onAddEarning={handleAddEarning}
+              onDeleteEarning={handleDeleteEarning}
               onNavigateCapture={() => setActiveTab('capture')}
             />
           )}

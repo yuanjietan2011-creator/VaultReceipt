@@ -4,7 +4,8 @@
 1. Every document in `/users/{userId}` belongs strictly to the authenticated, email-verified user whose `request.auth.uid == userId`. No other user may read, list, create, update, or delete another user's profile.
 2. Every document in `/receipts/{receiptId}` must have `userId == request.auth.uid`, valid 64-char lowercase hex `sha256Hash`, valid ISO `YYYY-MM-DD` `receipt_date`, 3-letter uppercase `currency`, bounded strings, and server-validated `createdAt == request.time` / `updatedAt == request.time`.
 3. Cryptographic seal fields (`id`, `userId`, `sha256Hash`, `uploadedAtUtc`, `fileName`, `fileSizeBytes`, `mimeType`, `imageUrl`, `createdAt`) are strictly immutable after document creation. Updates are restricted exclusively to editable accounting metadata (`merchant_name`, `receipt_date`, `currency`, `subtotal`, `gst_amount`, `total_amount`, `category`, `updatedAt`).
-4. List queries on `/receipts` are strictly rule-enforced (`resource.data.userId == request.auth.uid`) and `/users` listing is completely denied.
+4. Every document in `/earnings/{earningId}` belongs strictly to `request.auth.uid`, validates `client_name`, `description`, `earned_date`, `currency`, numeric `amount`/`gst_collected`/`net_revenue`, and enforces server timestamps (`createdAt == request.time`, `updatedAt == request.time`). Immutable `id`, `userId`, `createdAt` cannot be modified after creation.
+5. List queries on `/receipts` and `/earnings` are strictly rule-enforced (`resource.data.userId == request.auth.uid`) and `/users` listing is completely denied.
 
 ## 2. The "Dirty Dozen" Adversarial Payloads
 1. **Unauthenticated Read/Write**: `auth = null` attempting `getDoc('/receipts/r1')` -> `PERMISSION_DENIED`.

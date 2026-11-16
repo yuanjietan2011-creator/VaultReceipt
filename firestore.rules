@@ -103,6 +103,43 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidEarning(data, earningId) {
+      return data.keys().hasAll([
+          'id', 'userId', 'client_name', 'description', 'earned_date',
+          'currency', 'amount', 'gst_collected', 'net_revenue',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'userId', 'client_name', 'description', 'earned_date',
+          'currency', 'amount', 'gst_collected', 'net_revenue',
+          'createdAt', 'updatedAt'
+        ])
+        && data.id is string
+        && isValidId(data.id)
+        && data.id == earningId
+        && data.userId is string
+        && isValidId(data.userId)
+        && data.userId == request.auth.uid
+        && data.client_name is string
+        && data.client_name.size() >= 1
+        && data.client_name.size() <= 140
+        && data.description is string
+        && data.description.size() <= 200
+        && data.earned_date is string
+        && data.earned_date.size() == 10
+        && data.earned_date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.currency is string
+        && data.currency.size() == 3
+        && data.currency.matches('^[A-Z]{3}$')
+        && data.amount is number
+        && data.amount >= 0
+        && data.gst_collected is number
+        && data.gst_collected >= 0
+        && data.net_revenue is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     match /users/{userId} {
       allow get: if isValidId(userId) && isOwner(userId);
       allow list: if false;
@@ -153,6 +190,35 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time;
       allow delete: if isValidId(receiptId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid;
+    }
+
+    match /earnings/{earningId} {
+      allow get: if isValidId(earningId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid;
+      allow list: if isVerifiedUser()
+        && resource.data.userId == request.auth.uid;
+      allow create: if isValidId(earningId)
+        && isVerifiedUser()
+        && isValidEarning(incoming(), earningId)
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+      allow update: if isValidId(earningId)
+        && isVerifiedUser()
+        && existing().userId == request.auth.uid
+        && isValidEarning(incoming(), earningId)
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'client_name', 'description', 'earned_date',
+          'currency', 'amount', 'gst_collected',
+          'net_revenue', 'updatedAt'
+        ])
+        && incoming().id == existing().id
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+      allow delete: if isValidId(earningId)
         && isVerifiedUser()
         && existing().userId == request.auth.uid;
     }

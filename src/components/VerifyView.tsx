@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import {
   ShieldCheck,
   ShieldAlert,
+  FileCheck2,
   Upload,
   Camera,
   Loader2,
@@ -10,13 +11,59 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { auth } from '../firebase';
-import type { VerificationResult } from '../types/receipt';
+import type { VerificationResult, VerificationStatus } from '../types/receipt';
 import {
   formatBytes,
   formatCurrency,
   formatUtcTimestamp,
   truncateHash,
 } from '../utils/formatters';
+
+function getStatusMeta(result: VerificationResult): {
+  status: VerificationStatus;
+  title: string;
+  badgeText: string;
+  borderClass: string;
+  headingClass: string;
+} {
+  const status: VerificationStatus =
+    result.status ?? (result.verified ? 'exact_match' : 'unverified');
+
+  switch (status) {
+    case 'exact_match':
+      return {
+        status,
+        title: 'Verified Authentic — Exact SHA-256 File Match',
+        badgeText: 'Exact File Match',
+        borderClass: 'border-emerald-300',
+        headingClass: 'text-emerald-800',
+      };
+    case 'visual_match':
+      return {
+        status,
+        title: 'Receipt Matched — Different Photo or Angle',
+        badgeText: 'Receipt Content Match',
+        borderClass: 'border-teal-300',
+        headingClass: 'text-teal-800',
+      };
+    case 'amount_mismatch':
+      return {
+        status,
+        title: 'Tamper Warning — Receipt Amounts Differ From Sealed Record',
+        badgeText: 'Amount Mismatch',
+        borderClass: 'border-red-300',
+        headingClass: 'text-red-700',
+      };
+    default:
+      return {
+        status: 'unverified',
+        title: 'Unverified — No Matching Record in Firestore',
+        badgeText: 'Not Found',
+        borderClass: 'border-red-300',
+        headingClass: 'text-red-700',
+      };
+  }
+}
 
 export const VerifyView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -101,6 +148,8 @@ export const VerifyView: React.FC = () => {
     }
   };
 
+  const statusMeta = latestResult ? getStatusMeta(latestResult) : null;
+
   return (
     <div className="space-y-6">
       <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-8 space-y-6">
@@ -110,8 +159,9 @@ export const VerifyView: React.FC = () => {
               Receipt Tamper-Verification Tool
             </h2>
             <p className="text-sm text-slate-600 max-w-2xl">
-              Drop any receipt or invoice image to compute its raw-byte SHA-256 hash on the server
-              and verify whether it matches an authentic record in Cloud Firestore.
+              Drop any receipt or invoice image. We check both its exact raw-byte SHA-256 hash and
+              its extracted merchant, date, and totals against your Cloud Firestore ledger—so
+              re-snapped angles match while altered amounts are flagged.
             </p>
           </div>
 
@@ -178,18 +228,18 @@ export const VerifyView: React.FC = () => {
             <div className="space-y-2">
               <Loader2 className="w-6 h-6 animate-spin text-teal-700 mx-auto" />
               <p className="text-sm font-medium text-slate-900">
-                Computing SHA-256 digest &amp; querying Cloud Firestore…
+                Checking SHA-256 hash &amp; comparing receipt fields in Cloud Firestore…
               </p>
             </div>
           ) : (
             <div className="space-y-2 max-w-md">
               <ShieldCheck className="w-8 h-8 text-slate-500 mx-auto" />
               <p className="text-sm font-medium text-slate-900">
-                Drop an invoice image here to audit byte integrity
+                Drop an invoice or photo here to verify authenticity
               </p>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Even a 1-pixel edit, crop, or metadata rewrite alters the SHA-256 fingerprint and
-                triggers a tamper mismatch.
+                Identical files pass SHA-256 verification immediately; different-angle photos of
+                the same receipt are cross-checked by merchant, date, GST, and total.
               </p>
             </div>
           )}
@@ -206,28 +256,22 @@ export const VerifyView: React.FC = () => {
         )}
       </div>
 
-      {latestResult && (
+      {latestResult && statusMeta && (
         <div
-          className={`bg-white border rounded-xl p-5 sm:p-8 space-y-6 ${
-            latestResult.verified ? 'border-emerald-300' : 'border-red-300'
-          }`}
+          className={`bg-white border rounded-xl p-5 sm:p-8 space-y-6 ${statusMeta.borderClass}`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-200">
             <div className="flex items-start gap-3">
-              {latestResult.verified ? (
+              {statusMeta.status === 'exact_match' ? (
                 <ShieldCheck className="w-6 h-6 text-emerald-700 shrink-0 mt-0.5" />
+              ) : statusMeta.status === 'visual_match' ? (
+                <FileCheck2 className="w-6 h-6 text-teal-700 shrink-0 mt-0.5" />
               ) : (
                 <ShieldAlert className="w-6 h-6 text-red-600 shrink-0 mt-0.5" />
               )}
               <div className="space-y-1">
-                <h3
-                  className={`font-display text-lg font-bold ${
-                    latestResult.verified ? 'text-emerald-800' : 'text-red-700'
-                  }`}
-                >
-                  {latestResult.verified
-                    ? 'Verified Authentic — Exact Hash Match in Firestore'
-                    : 'Unverified — No Matching SHA-256 Record'}
+                <h3 className={`font-display text-lg font-bold ${statusMeta.headingClass}`}>
+                  {statusMeta.title}
                 </h3>
                 <p className="text-xs text-slate-600 font-mono tabular-nums">
                   Inspected {latestResult.fileName} · {formatBytes(latestResult.fileSizeBytes)} ·{' '}
@@ -236,6 +280,57 @@ export const VerifyView: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {statusMeta.status === 'visual_match' && (
+            <p className="text-sm text-slate-700 leading-relaxed">
+              This image file has different raw bytes from the original upload (which happens when a
+              paper receipt is photographed again from a different angle or re-compressed), so its
+              SHA-256 digest differs. However, Gemini extracted the exact same{' '}
+              <strong>merchant, date, GST, and total amount</strong> as the sealed record in your
+              Firestore ledger below.
+            </p>
+          )}
+
+          {statusMeta.status === 'amount_mismatch' && latestResult.extractedFields && latestResult.matchedReceipt && (
+            <div className="p-4 rounded-lg bg-red-50 border border-red-200 space-y-2 text-sm text-red-900">
+              <p className="font-semibold">
+                Detected altered totals for {latestResult.matchedReceipt.merchant_name} (
+                {latestResult.matchedReceipt.receipt_date})
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono tabular-nums pt-1">
+                <div>
+                  <span className="text-red-700">Original Sealed Total: </span>
+                  <strong>
+                    {formatCurrency(
+                      latestResult.matchedReceipt.total_amount,
+                      latestResult.matchedReceipt.currency
+                    )}
+                  </strong>{' '}
+                  (GST{' '}
+                  {formatCurrency(
+                    latestResult.matchedReceipt.gst_amount,
+                    latestResult.matchedReceipt.currency
+                  )}
+                  )
+                </div>
+                <div>
+                  <span className="text-red-700">Uploaded Image Total: </span>
+                  <strong>
+                    {formatCurrency(
+                      latestResult.extractedFields.total_amount,
+                      latestResult.extractedFields.currency
+                    )}
+                  </strong>{' '}
+                  (GST{' '}
+                  {formatCurrency(
+                    latestResult.extractedFields.gst_amount,
+                    latestResult.extractedFields.currency
+                  )}
+                  )
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -263,12 +358,18 @@ export const VerifyView: React.FC = () => {
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg font-mono text-xs text-slate-900 break-all select-all">
               {latestResult.computedHash}
             </div>
+            {latestResult.matchedReceipt &&
+              latestResult.matchedReceipt.sha256Hash !== latestResult.computedHash && (
+                <p className="text-xs text-slate-500 font-mono break-all">
+                  Original Sealed Hash: {latestResult.matchedReceipt.sha256Hash}
+                </p>
+              )}
           </div>
 
           {latestResult.matchedReceipt ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 pt-2 border-t border-slate-100">
               <div>
-                <p className="text-xs text-slate-500">Matched Merchant</p>
+                <p className="text-xs text-slate-500">Matched Client / Source</p>
                 <p className="text-sm font-semibold text-slate-900 mt-1">
                   {latestResult.matchedReceipt.merchant_name}
                 </p>
@@ -283,7 +384,7 @@ export const VerifyView: React.FC = () => {
                 </p>
               </div>
               <div>
-                <p className="text-xs text-slate-500">Total / GST</p>
+                <p className="text-xs text-slate-500">Sealed Earned / GST</p>
                 <p className="text-sm font-semibold font-mono tabular-nums text-slate-900 mt-1">
                   {formatCurrency(
                     latestResult.matchedReceipt.total_amount,
@@ -307,11 +408,29 @@ export const VerifyView: React.FC = () => {
               </div>
             </div>
           ) : (
-            <p className="text-sm text-slate-600 leading-relaxed pt-2 border-t border-slate-100">
-              No receipt in your Cloud Firestore vault matches the SHA-256 fingerprint above. Either
-              this image was never sealed in your account, or the image bytes were modified after
-              the original seal.
-            </p>
+            <div className="space-y-3 pt-2 border-t border-slate-100">
+              <p className="text-sm text-slate-600 leading-relaxed">
+                No receipt in your Cloud Firestore vault matches either the SHA-256 fingerprint or
+                the merchant, date, and totals extracted from this image.
+              </p>
+              {latestResult.extractedFields && (
+                <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-700 flex flex-wrap items-center gap-x-5 gap-y-1">
+                  <span>
+                    Detected: <strong>{latestResult.extractedFields.merchant_name}</strong>
+                  </span>
+                  <span className="font-mono tabular-nums">
+                    Date: {latestResult.extractedFields.receipt_date}
+                  </span>
+                  <span className="font-mono tabular-nums">
+                    Total:{' '}
+                    {formatCurrency(
+                      latestResult.extractedFields.total_amount,
+                      latestResult.extractedFields.currency
+                    )}
+                  </span>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -324,28 +443,33 @@ export const VerifyView: React.FC = () => {
             </h3>
           </div>
           <div className="divide-y divide-slate-100">
-            {history.map((item, idx) => (
-              <div
-                key={`${item.computedHash}-${idx}`}
-                className="px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  {item.verified ? (
-                    <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
-                  ) : (
-                    <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
-                  )}
-                  <span className="font-medium text-slate-900 truncate">{item.fileName}</span>
-                  <span className="text-xs text-slate-500 whitespace-nowrap">
-                    {item.verified ? 'Authentic Match' : 'Hash Mismatch'}
-                  </span>
+            {history.map((item, idx) => {
+              const meta = getStatusMeta(item);
+              return (
+                <div
+                  key={`${item.computedHash}-${idx}`}
+                  className="px-6 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    {meta.status === 'exact_match' ? (
+                      <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
+                    ) : meta.status === 'visual_match' ? (
+                      <FileCheck2 className="w-4 h-4 text-teal-700 shrink-0" />
+                    ) : (
+                      <ShieldAlert className="w-4 h-4 text-red-600 shrink-0" />
+                    )}
+                    <span className="font-medium text-slate-900 truncate">{item.fileName}</span>
+                    <span className="text-xs text-slate-500 whitespace-nowrap">
+                      {meta.badgeText}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs font-mono tabular-nums text-slate-500 shrink-0">
+                    <span>{truncateHash(item.computedHash)}</span>
+                    <span>{formatUtcTimestamp(item.checkedAtUtc)}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-4 text-xs font-mono tabular-nums text-slate-500 shrink-0">
-                  <span>{truncateHash(item.computedHash)}</span>
-                  <span>{formatUtcTimestamp(item.checkedAtUtc)}</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

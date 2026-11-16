@@ -224,6 +224,72 @@ function readFsNumber(fields: Record<string, FirestoreFieldVal>, key: string, fa
   return fallback;
 }
 
+function parseFirestoreReceiptDoc(fields: Record<string, FirestoreFieldVal>): ReceiptRecord {
+  const record: ReceiptRecord = {
+    id: readFsString(fields, 'id'),
+    userId: readFsString(fields, 'userId'),
+    sha256Hash: readFsString(fields, 'sha256Hash'),
+    uploadedAtUtc: readFsString(fields, 'uploadedAtUtc'),
+    fileName: readFsString(fields, 'fileName'),
+    fileSizeBytes: readFsNumber(fields, 'fileSizeBytes'),
+    mimeType: readFsString(fields, 'mimeType', 'image/jpeg'),
+    imageUrl: readFsString(fields, 'imageUrl'),
+    merchant_name: readFsString(fields, 'merchant_name'),
+    receipt_date: readFsString(fields, 'receipt_date'),
+    currency: readFsString(fields, 'currency', 'USD'),
+    subtotal: readFsNumber(fields, 'subtotal'),
+    gst_amount: readFsNumber(fields, 'gst_amount'),
+    total_amount: readFsNumber(fields, 'total_amount'),
+    category: readFsString(fields, 'category', 'Other'),
+  };
+
+  return attachSignedImageUrl(record);
+}
+
+async function listUserReceiptsFromFirestore(
+  idToken: string,
+  uid: string
+): Promise<ReceiptRecord[]> {
+  const databasePath = `projects/${firebaseConfig.projectId}/databases/${firebaseConfig.firestoreDatabaseId}/documents`;
+  const url = `https://firestore.googleapis.com/v1/${databasePath}:runQuery`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: 'receipts' }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: 'userId' },
+            op: 'EQUAL',
+            value: { stringValue: uid },
+          },
+        },
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(`Firestore query failed (${response.status}): ${errText}`);
+  }
+
+  const results = (await response.json()) as Array<{
+    document?: {
+      name: string;
+      fields?: Record<string, FirestoreFieldVal>;
+    };
+  }>;
+
+  return results
+    .filter((r) => Boolean(r.document?.fields))
+    .map((r) => parseFirestoreReceiptDoc(r.document!.fields!));
+}
+
 async function findReceiptInFirestoreByHash(
   idToken: string,
   uid: string,
@@ -282,26 +348,28 @@ async function findReceiptInFirestoreByHash(
   const doc = results.find((r) => r.document?.fields)?.document;
   if (!doc || !doc.fields) return null;
 
-  const f = doc.fields;
-  const record: ReceiptRecord = {
-    id: readFsString(f, 'id'),
-    userId: readFsString(f, 'userId'),
-    sha256Hash: readFsString(f, 'sha256Hash'),
-    uploadedAtUtc: readFsString(f, 'uploadedAtUtc'),
-    fileName: readFsString(f, 'fileName'),
-    fileSizeBytes: readFsNumber(f, 'fileSizeBytes'),
-    mimeType: readFsString(f, 'mimeType', 'image/jpeg'),
-    imageUrl: readFsString(f, 'imageUrl'),
-    merchant_name: readFsString(f, 'merchant_name'),
-    receipt_date: readFsString(f, 'receipt_date'),
-    currency: readFsString(f, 'currency', 'USD'),
-    subtotal: readFsNumber(f, 'subtotal'),
-    gst_amount: readFsNumber(f, 'gst_amount'),
-    total_amount: readFsNumber(f, 'total_amount'),
-    category: readFsString(f, 'category', 'Other'),
-  };
+  return parseFirestoreReceiptDoc(doc.fields);
+}
 
-  return attachSignedImageUrl(record);
+function merchantsMatch(a: string, b: string): boolean {
+  const normA = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normB = b.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (!normA || !normB) return false;
+  if (normA === normB) return true;
+  if (normA.length >= 4 && normB.includes(normA)) return true;
+  if (normB.length >= 4 && normA.includes(normB)) return true;
+
+  const wordsA = a
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4);
+  const wordsB = new Set(
+    b
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= 4)
+  );
+  return wordsA.some((w) => wordsB.has(w));
 }
 
 const ai = new GoogleGenAI({
@@ -337,19 +405,20 @@ async function extractReceiptWithGemini(
               },
             },
             {
-              text: 'Analyze this invoice or receipt image and extract the tax accounting fields accurately.',
+              text: 'Analyze this receipt or sales invoice image and extract the company earnings and tax fields accurately.',
             },
           ],
         },
         config: {
           systemInstruction:
-            'You are a precision tax accounting OCR parser for freelancers and small businesses. ' +
-            'Extract merchant_name, receipt_date (formatted strictly as YYYY-MM-DD; if year or date is missing, use today UTC date), ' +
+            'You are a precision revenue and receipt OCR parser for small companies tracking total earnings from all receipts taken. ' +
+            'Extract merchant_name (the client, customer, payer, store, or issuing business name shown on the receipt), ' +
+            'receipt_date (formatted strictly as YYYY-MM-DD; if year or date is missing, use today UTC date), ' +
             'currency (3-letter ISO 4217 uppercase code such as USD, AUD, SGD, CAD, EUR, GBP; infer from symbol or address if unambiguous, default USD), ' +
-            'subtotal (numeric pre-tax amount; if only total and tax are shown, compute total - gst_amount; if no tax is shown, equal to total_amount), ' +
+            'subtotal (numeric pre-tax net earnings amount; if only total and tax are shown, compute total - gst_amount; if no tax is shown, equal to total_amount), ' +
             'gst_amount (numeric GST/VAT/sales tax amount; 0 if none shown), ' +
-            'total_amount (numeric final total charged), and ' +
-            'category (pick the single best match from: Software, Transport, Meals, Office Supplies, Utilities, Travel, Professional Services, Equipment, Other). ' +
+            'total_amount (numeric final total amount earned/received on the receipt), and ' +
+            'category (pick the single best match from: Client Services, Product Sales, Consulting, Subscriptions, Project Milestone, Retail / POS, Other). ' +
             'Return numeric amounts as clean numbers rounded to 2 decimal places.',
           responseMimeType: 'application/json',
           responseSchema: {
@@ -357,11 +426,11 @@ async function extractReceiptWithGemini(
             properties: {
               merchant_name: {
                 type: Type.STRING,
-                description: 'The business or merchant name on the receipt or invoice.',
+                description: 'The client, customer, payer, or business name on the receipt or sales invoice.',
               },
               receipt_date: {
                 type: Type.STRING,
-                description: 'Date of the transaction in YYYY-MM-DD format.',
+                description: 'Date of the receipt transaction in YYYY-MM-DD format.',
               },
               currency: {
                 type: Type.STRING,
@@ -369,20 +438,20 @@ async function extractReceiptWithGemini(
               },
               subtotal: {
                 type: Type.NUMBER,
-                description: 'Pre-tax subtotal amount.',
+                description: 'Pre-tax net earnings amount.',
               },
               gst_amount: {
                 type: Type.NUMBER,
-                description: 'GST, VAT, or sales tax amount.',
+                description: 'GST, VAT, or sales tax collected.',
               },
               total_amount: {
                 type: Type.NUMBER,
-                description: 'Final total amount paid.',
+                description: 'Final total amount earned/received.',
               },
               category: {
                 type: Type.STRING,
                 description:
-                  'Expense category: Software, Transport, Meals, Office Supplies, Utilities, Travel, Professional Services, Equipment, or Other.',
+                  'Earnings category: Client Services, Product Sales, Consulting, Subscriptions, Project Milestone, Retail / POS, or Other.',
               },
             },
             required: [
@@ -583,7 +652,9 @@ async function startServer() {
     res.json({ deleted: true });
   });
 
-  // Tamper-verification endpoint: compute SHA-256 of dropped image bytes and query Firestore
+  // Two-layer tamper verification:
+  // 1) Exact raw-byte SHA-256 hash match in Firestore
+  // 2) Visual/accounting match via Gemini OCR (handles re-photographed/different-angle receipts & catches altered totals)
   app.post('/api/receipts/verify', upload.single('receipt'), async (req, res) => {
     const user = await requireFirebaseAuth(req, res);
     if (!user) return;
@@ -593,20 +664,85 @@ async function startServer() {
       return;
     }
 
+    const mimeType = normalizeImageMimeType(req.file);
+    if (!mimeType) {
+      res.status(400).json({ error: 'Unsupported image format.' });
+      return;
+    }
+
     try {
       const rawBytes = req.file.buffer;
       const computedHash = crypto.createHash('sha256').update(rawBytes).digest('hex');
       const checkedAtUtc = new Date().toISOString();
+      const fileName = req.file.originalname || 'uploaded-image';
 
-      const matched = await findReceiptInFirestoreByHash(user.idToken, user.uid, computedHash);
+      const allReceipts = await listUserReceiptsFromFirestore(user.idToken, user.uid);
+      const exactMatch = allReceipts.find((r) => r.sha256Hash === computedHash) ?? null;
+
+      if (exactMatch) {
+        res.json({
+          verified: true,
+          status: 'exact_match',
+          computedHash,
+          checkedAtUtc,
+          fileName,
+          fileSizeBytes: rawBytes.length,
+          matchedReceipt: exactMatch,
+        });
+        return;
+      }
+
+      // Layer 2: Extract fields from the new angle/photo and compare with Firestore records
+      const extracted = await extractReceiptWithGemini(rawBytes, mimeType);
+      const sameReceiptCandidates = allReceipts.filter(
+        (r) =>
+          r.receipt_date === extracted.receipt_date &&
+          merchantsMatch(r.merchant_name, extracted.merchant_name)
+      );
+
+      const exactAmountMatch = sameReceiptCandidates.find(
+        (r) =>
+          Math.abs(r.total_amount - extracted.total_amount) <= 0.02 &&
+          Math.abs(r.gst_amount - extracted.gst_amount) <= 0.02
+      );
+
+      if (exactAmountMatch) {
+        res.json({
+          verified: true,
+          status: 'visual_match',
+          computedHash,
+          checkedAtUtc,
+          fileName,
+          fileSizeBytes: rawBytes.length,
+          matchedReceipt: exactAmountMatch,
+          extractedFields: extracted,
+        });
+        return;
+      }
+
+      if (sameReceiptCandidates.length > 0) {
+        res.json({
+          verified: false,
+          status: 'amount_mismatch',
+          computedHash,
+          checkedAtUtc,
+          fileName,
+          fileSizeBytes: rawBytes.length,
+          matchedReceipt: sameReceiptCandidates[0],
+          extractedFields: extracted,
+        });
+        return;
+      }
 
       res.json({
-        verified: Boolean(matched),
+        verified: false,
+        status: 'unverified',
         computedHash,
         checkedAtUtc,
-        fileName: req.file.originalname || 'uploaded-image',
+        fileName,
         fileSizeBytes: rawBytes.length,
-        matchedReceipt: matched,
+        matchedReceipt: null,
+        extractedFields: extracted,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Verification failed.';

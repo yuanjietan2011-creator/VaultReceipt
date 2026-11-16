@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import {
-  EXPENSE_CATEGORIES,
+  EARNING_CATEGORIES,
+  type EarningRecord,
   type ExtractedReceiptFields,
   type ReceiptRecord,
   type ScanReceiptResponse,
@@ -26,11 +27,15 @@ import {
 } from '../utils/formatters';
 
 interface CaptureViewProps {
+  receipts: ReceiptRecord[];
+  earnings: EarningRecord[];
   onUpdateReceipt: (id: string, fields: ExtractedReceiptFields) => Promise<void>;
   onOpenLedger: () => void;
 }
 
 export const CaptureView: React.FC<CaptureViewProps> = ({
+  receipts,
+  earnings,
   onUpdateReceipt,
   onOpenLedger,
 }) => {
@@ -218,18 +223,65 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
     }
   };
 
+  const totalsByCurrency = receipts.reduce<Record<string, number>>((acc, r) => {
+    const curr = r.currency || 'USD';
+    acc[curr] = (acc[curr] ?? 0) + r.subtotal;
+    return acc;
+  }, {});
+  for (const e of earnings) {
+    const curr = e.currency || 'USD';
+    totalsByCurrency[curr] = (totalsByCurrency[curr] ?? 0) + e.net_revenue;
+  }
+  const currencyList = Object.keys(totalsByCurrency);
+  const grandTotalEarned = Object.values(totalsByCurrency).reduce((sum, val) => sum + val, 0);
+  const displayCurr =
+    currencyList.length === 0
+      ? 'USD'
+      : currencyList.length === 1
+        ? currencyList[0]
+        : currencyList.includes('USD')
+          ? 'USD'
+          : currencyList.sort((a, b) => totalsByCurrency[b] - totalsByCurrency[a])[0];
+
   return (
     <div className="space-y-6">
+      {/* Live Company Total Earned Banner (Without GST) */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:px-6 sm:py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium text-slate-500">
+            Company Total Earned (Without GST)
+          </p>
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 mt-0.5">
+            <p className="font-display text-2xl font-bold font-mono tabular-nums text-emerald-800">
+              {formatCurrency(grandTotalEarned, displayCurr)}
+            </p>
+            <span className="text-xs text-slate-500">
+              From {receipts.length} {receipts.length === 1 ? 'receipt' : 'receipts'} recorded
+              {currencyList.length > 1
+                ? ` (${currencyList.map((c) => `${c} ${totalsByCurrency[c].toFixed(2)}`).join(' · ')})`
+                : ''}
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onOpenLedger}
+          className="min-h-[40px] px-4 py-2 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap self-start sm:self-auto cursor-pointer"
+        >
+          View Earnings Ledger
+        </button>
+      </div>
+
       <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-5 space-y-5">
             <div className="space-y-1.5">
               <h2 className="font-display text-xl font-bold text-slate-900">
-                Capture &amp; Seal Receipt
+                Capture &amp; Record Receipt
               </h2>
               <p className="text-sm text-slate-600 leading-relaxed">
-                Snap a receipt photo or upload an invoice image. Raw bytes are hashed via SHA-256,
-                parsed by Gemini, and synced to your private Cloud Firestore vault.
+                Snap a receipt photo or upload a sales invoice. Every receipt is sealed via SHA-256,
+                parsed by Gemini, and added into your company&apos;s total earnings in Cloud Firestore.
               </p>
             </div>
 
@@ -398,8 +450,8 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
                 <CheckCircle2 className="w-4 h-4 shrink-0" />
                 <span>
                   {sealedResult.duplicate
-                    ? 'Existing Firestore Record Matched'
-                    : 'New Cloud Firestore Record Sealed'}
+                    ? 'Already Added to Company Earnings'
+                    : 'Added to Company Earnings in Firestore'}
                 </span>
               </div>
               <h3 className="font-display text-lg font-bold text-slate-900">
@@ -424,7 +476,7 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
                 onClick={onOpenLedger}
                 className="min-h-[42px] px-3.5 py-2 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
               >
-                View in Tax Ledger
+                View Earnings Ledger
               </button>
             </div>
           </div>
@@ -460,16 +512,18 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
           <form onSubmit={handleSaveAdjustments} className="space-y-5 pt-2 border-t border-slate-100">
             <div className="flex items-center justify-between gap-4">
               <h4 className="text-sm font-semibold text-slate-900">
-                Extracted Tax Fields (Gemini Structured Output)
+                Extracted Receipt Earnings (Gemini Structured Output)
               </h4>
-              <span className="text-xs font-mono tabular-nums text-slate-500">
-                Total: {formatCurrency(editFields.total_amount, editFields.currency)}
+              <span className="text-xs font-mono tabular-nums font-semibold text-emerald-800">
+                Earned (Excl. GST): {formatCurrency(editFields.subtotal, editFields.currency)}
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="sm:col-span-2 space-y-1.5">
-                <label className="block text-xs font-medium text-slate-600">Merchant Name</label>
+                <label className="block text-xs font-medium text-slate-600">
+                  Client / Receipt Source
+                </label>
                 <input
                   type="text"
                   required
@@ -501,13 +555,13 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
                   onChange={(e) => setEditFields({ ...editFields, category: e.target.value })}
                   className="w-full h-10 px-3 text-sm bg-white border border-slate-300 rounded-lg text-slate-900 focus:outline-none focus:border-teal-700"
                 >
-                  {EXPENSE_CATEGORIES.map((cat) => (
+                  {EARNING_CATEGORIES.map((cat) => (
                     <option key={cat} value={cat}>
                       {cat}
                     </option>
                   ))}
-                  {!EXPENSE_CATEGORIES.includes(
-                    editFields.category as (typeof EXPENSE_CATEGORIES)[number]
+                  {!EARNING_CATEGORIES.includes(
+                    editFields.category as (typeof EARNING_CATEGORIES)[number]
                   ) && <option value={editFields.category}>{editFields.category}</option>}
                 </select>
               </div>
@@ -527,7 +581,9 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-600">Subtotal</label>
+                <label className="block text-xs font-medium text-slate-600">
+                  Earned (Without GST)
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -541,7 +597,9 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-600">GST / Tax Amount</label>
+                <label className="block text-xs font-medium text-slate-600">
+                  GST / Tax (For Gov)
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -555,7 +613,9 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-600">Total Amount</label>
+                <label className="block text-xs font-medium text-slate-600">
+                  Receipt Total (Incl. GST)
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -571,7 +631,7 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
               <p className="text-xs text-slate-500">
-                {saveMessage || 'Adjust OCR values if needed before exporting your tax report.'}
+                {saveMessage || 'Adjust extracted values if needed before exporting your earnings report.'}
               </p>
               <button
                 type="submit"

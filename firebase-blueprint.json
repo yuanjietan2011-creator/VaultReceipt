@@ -159,6 +159,88 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "Earning": {
+      "title": "Earning",
+      "description": "Company revenue or client income entry recorded by the business owner.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique earning record ID."
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the owning user."
+        },
+        "client_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 140,
+          "description": "Client, customer, or revenue source name."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 200,
+          "description": "Optional invoice or project note."
+        },
+        "earned_date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Date earned in YYYY-MM-DD format."
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 3,
+          "pattern": "^[A-Z]{3}$",
+          "description": "Three-letter ISO 4217 currency code."
+        },
+        "amount": {
+          "type": "number",
+          "description": "Gross revenue earned."
+        },
+        "gst_collected": {
+          "type": "number",
+          "description": "GST or sales tax collected from the client."
+        },
+        "net_revenue": {
+          "type": "number",
+          "description": "Pre-tax net revenue earned."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp on creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Firestore server timestamp on update."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "client_name",
+        "description",
+        "earned_date",
+        "currency",
+        "amount",
+        "gst_collected",
+        "net_revenue",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -169,6 +251,10 @@
     "/receipts/{receiptId}": {
       "schema": { "$ref": "#/entities/Receipt" },
       "description": "Cryptographically sealed receipt and invoice tax records owned by individual users."
+    },
+    "/earnings/{earningId}": {
+      "schema": { "$ref": "#/entities/Earning" },
+      "description": "Company earnings and client revenue records owned by individual users."
     }
   }
 }

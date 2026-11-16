@@ -1,4 +1,4 @@
-import type { ReceiptRecord } from '../types/receipt';
+import type { EarningRecord, ReceiptRecord } from '../types/receipt';
 
 export function truncateHash(hash: string): string {
   if (!hash || hash.length <= 14) return hash;
@@ -62,22 +62,28 @@ function escapeCsvCell(value: string | number): string {
   return str;
 }
 
-export function exportReceiptsToCsv(receipts: ReceiptRecord[], userEmail: string): void {
+export function exportReceiptsToCsv(
+  receipts: ReceiptRecord[],
+  userEmail: string,
+  earnings: EarningRecord[] = []
+): void {
   const headers = [
-    'Receipt ID',
-    'Receipt Date',
-    'Merchant Name',
-    'Category',
+    'Entry Type',
+    'Record ID',
+    'Date',
+    'Client / Receipt Source',
+    'Category / Notes',
     'Currency',
-    'Subtotal',
-    'GST Amount',
-    'Total Amount',
+    'Pre-Tax Earned (Without GST)',
+    'GST / Tax (Gov)',
+    'Receipt Total (Incl. GST)',
     'SHA-256 Hash',
     'UTC Upload Timestamp',
     'Original Filename',
   ];
 
-  const rows = receipts.map((r) => [
+  const receiptRows = receipts.map((r) => [
+    'RECEIPT_EARNING',
     r.id,
     r.receipt_date,
     r.merchant_name,
@@ -91,25 +97,51 @@ export function exportReceiptsToCsv(receipts: ReceiptRecord[], userEmail: string
     r.fileName,
   ]);
 
-  const totalSubtotal = receipts.reduce((sum, r) => sum + r.subtotal, 0);
-  const totalGst = receipts.reduce((sum, r) => sum + r.gst_amount, 0);
-  const totalAmount = receipts.reduce((sum, r) => sum + r.total_amount, 0);
-
-  rows.push([
-    'SUMMARY',
+  const manualEarningRows = earnings.map((e) => [
+    'MANUAL_EARNING',
+    e.id,
+    e.earned_date,
+    e.client_name,
+    e.description || 'Manual Company Earning',
+    e.currency,
+    e.net_revenue.toFixed(2),
+    e.gst_collected.toFixed(2),
+    e.amount.toFixed(2),
     '',
-    `Vault Owner: ${userEmail}`,
-    `${receipts.length} Sealed Receipts`,
-    'MULTI',
-    totalSubtotal.toFixed(2),
-    totalGst.toFixed(2),
-    totalAmount.toFixed(2),
     '',
-    new Date().toISOString(),
     '',
   ]);
 
-  const csvContent = [headers, ...rows]
+  const totalReceiptEarned = receipts.reduce((sum, r) => sum + r.total_amount, 0);
+  const totalReceiptNet = receipts.reduce((sum, r) => sum + r.subtotal, 0);
+  const totalReceiptGst = receipts.reduce((sum, r) => sum + r.gst_amount, 0);
+
+  const totalManualEarned = earnings.reduce((sum, e) => sum + e.amount, 0);
+  const totalManualNet = earnings.reduce((sum, e) => sum + e.net_revenue, 0);
+  const totalManualGst = earnings.reduce((sum, e) => sum + e.gst_collected, 0);
+
+  const grandTotalEarned = totalReceiptEarned + totalManualEarned;
+  const grandTotalNet = totalReceiptNet + totalManualNet;
+  const grandTotalGst = totalReceiptGst + totalManualGst;
+
+  const summaryRows = [
+    [
+      'SUMMARY_COMPANY_TOTAL_EARNED_WITHOUT_GST',
+      '',
+      '',
+      `Vault Owner: ${userEmail}`,
+      `${receipts.length} Receipts${earnings.length > 0 ? ` + ${earnings.length} Manual Entries` : ''}`,
+      'MULTI',
+      grandTotalNet.toFixed(2),
+      grandTotalGst.toFixed(2),
+      grandTotalEarned.toFixed(2),
+      '',
+      new Date().toISOString(),
+      '',
+    ],
+  ];
+
+  const csvContent = [headers, ...receiptRows, ...manualEarningRows, ...summaryRows]
     .map((row) => row.map((cell) => escapeCsvCell(cell)).join(','))
     .join('\r\n');
 
@@ -118,7 +150,7 @@ export function exportReceiptsToCsv(receipts: ReceiptRecord[], userEmail: string
   const link = document.createElement('a');
   const dateStamp = new Date().toISOString().slice(0, 10);
   link.href = url;
-  link.setAttribute('download', `vaultreceipt-tax-report-${dateStamp}.csv`);
+  link.setAttribute('download', `vaultreceipt-earnings-report-${dateStamp}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
@@ -140,11 +172,11 @@ export async function generateSampleReceiptBlob(): Promise<File> {
 
   ctx.fillStyle = '#0f172a';
   ctx.font = 'bold 34px monospace';
-  ctx.fillText('NORTHSTAR CLOUD SERVICES', 60, 96);
+  ctx.fillText('HARBORVIEW DESIGN CLIENT', 60, 96);
 
   ctx.fillStyle = '#475569';
   ctx.font = '20px monospace';
-  ctx.fillText('TAX INVOICE · ABN 48 912 304 118', 60, 134);
+  ctx.fillText('PAID SALES RECEIPT · REF 48 912 304', 60, 134);
   ctx.fillText('410 Market Street, Suite 800', 60, 164);
 
   ctx.strokeStyle = '#cbd5e1';
@@ -158,7 +190,7 @@ export async function generateSampleReceiptBlob(): Promise<File> {
   ctx.fillStyle = '#0f172a';
   ctx.font = '22px monospace';
   ctx.fillText(`DATE: ${today}`, 60, 240);
-  ctx.fillText('INVOICE NO: INV-2026-8419', 60, 276);
+  ctx.fillText('RECEIPT NO: REC-2026-8419', 60, 276);
   ctx.fillText('CURRENCY: USD', 60, 312);
 
   ctx.beginPath();
@@ -167,30 +199,30 @@ export async function generateSampleReceiptBlob(): Promise<File> {
   ctx.stroke();
 
   ctx.font = 'bold 22px monospace';
-  ctx.fillText('DESCRIPTION', 60, 390);
+  ctx.fillText('SERVICE / ITEM SOLD', 60, 390);
   ctx.fillText('AMOUNT', 550, 390);
 
   ctx.font = '21px monospace';
-  ctx.fillText('Pro Workspace Subscription (Monthly)', 60, 445);
-  ctx.fillText('$84.00', 550, 445);
+  ctx.fillText('Monthly Design & Support Retainer', 60, 445);
+  ctx.fillText('$840.00', 540, 445);
 
-  ctx.fillText('Encrypted Backup Add-on (500 GB)', 60, 490);
-  ctx.fillText('$36.00', 550, 490);
+  ctx.fillText('Brand Asset Setup Package', 60, 490);
+  ctx.fillText('$360.00', 540, 490);
 
   ctx.beginPath();
   ctx.moveTo(60, 540);
   ctx.lineTo(660, 540);
   ctx.stroke();
 
-  ctx.fillText('SUBTOTAL', 60, 595);
-  ctx.fillText('$120.00', 550, 595);
+  ctx.fillText('NET EARNINGS (PRE-TAX)', 60, 595);
+  ctx.fillText('$1,200.00', 520, 595);
 
-  ctx.fillText('GST / TAX (10%)', 60, 638);
-  ctx.fillText('$12.00', 550, 638);
+  ctx.fillText('GST / TAX COLLECTED (10%)', 60, 638);
+  ctx.fillText('$120.00', 540, 638);
 
   ctx.font = 'bold 28px monospace';
-  ctx.fillText('TOTAL PAID', 60, 700);
-  ctx.fillText('$132.00', 530, 700);
+  ctx.fillText('TOTAL RECEIVED', 60, 700);
+  ctx.fillText('$1,320.00', 505, 700);
 
   ctx.strokeStyle = '#cbd5e1';
   ctx.beginPath();
@@ -200,8 +232,8 @@ export async function generateSampleReceiptBlob(): Promise<File> {
 
   ctx.fillStyle = '#64748b';
   ctx.font = '18px monospace';
-  ctx.fillText('PAID BY VISA •••• 4242', 60, 800);
-  ctx.fillText('THANK YOU FOR YOUR BUSINESS', 60, 836);
+  ctx.fillText('PAYMENT SETTLED · VISA •••• 4242', 60, 800);
+  ctx.fillText('RECORDED TO COMPANY EARNINGS', 60, 836);
 
   const blob = await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((result) => {
@@ -210,5 +242,5 @@ export async function generateSampleReceiptBlob(): Promise<File> {
     }, 'image/png');
   });
 
-  return new File([blob], `northstar-invoice-${today}.png`, { type: 'image/png' });
+  return new File([blob], `sample-sales-receipt-${today}.png`, { type: 'image/png' });
 }

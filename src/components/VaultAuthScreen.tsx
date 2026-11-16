@@ -34,7 +34,7 @@ export const VaultAuthScreen: React.FC = () => {
             VaultReceipt
           </span>
           <span className="text-xs font-medium text-slate-500 whitespace-nowrap shrink-0">
-            Encrypted Cloud Tax &amp; Receipt Ledger
+            Company Receipt &amp; Earnings Vault
           </span>
         </div>
       </header>
@@ -44,15 +44,15 @@ export const VaultAuthScreen: React.FC = () => {
           <div className="lg:col-span-7 flex flex-col justify-center space-y-6">
             <div className="space-y-3">
               <p className="text-xs font-medium text-teal-700 tracking-wide">
-                Encrypted expense bookkeeping for phones, tablets, and PCs
+                Company earnings tracking from every receipt across phones, tablets, and PCs
               </p>
               <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 text-balance">
-                Seal every receipt at capture with SHA-256 proof and structured AI tax extraction.
+                Track how much your company earns from every receipt with SHA-256 proof.
               </h1>
               <p className="text-base text-slate-600 leading-relaxed max-w-xl">
-                Snap receipts on your phone or upload invoices from your computer. Every receipt is
-                hashed with SHA-256, extracted with Gemini, synced to your private Cloud Firestore
-                ledger, and stored with AES-256-GCM encryption.
+                Snap sales receipts on your phone or upload invoices from your computer. Every
+                receipt is extracted by Gemini, added straight into your company&apos;s total
+                earnings in Cloud Firestore, and stored with AES-256-GCM encryption.
               </p>
             </div>
 
@@ -69,10 +69,10 @@ export const VaultAuthScreen: React.FC = () => {
               <div className="pt-4 space-y-1.5">
                 <div className="flex items-center gap-2 text-slate-900 font-semibold text-sm">
                   <FileCheck2 className="w-4 h-4 text-teal-700 shrink-0" />
-                  <span>Structured Tax OCR</span>
+                  <span>Automatic Total Earned</span>
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Extracts merchant, date, currency, subtotal, GST, total, and expense category.
+                  Every scanned receipt extracts client, date, net revenue, GST, and adds to your total.
                 </p>
               </div>
               <div className="pt-4 space-y-1.5">
@@ -81,7 +81,7 @@ export const VaultAuthScreen: React.FC = () => {
                   <span>Tamper Verification</span>
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  Drop any invoice later to verify its SHA-256 hash against your Firestore ledger.
+                  Drop any receipt later to verify its SHA-256 hash against your Firestore ledger.
                 </p>
               </div>
             </div>
@@ -91,11 +91,11 @@ export const VaultAuthScreen: React.FC = () => {
             <div className="w-full bg-white border border-slate-200 rounded-xl p-6 sm:p-8 space-y-6">
               <div className="space-y-1.5">
                 <h2 className="font-display text-xl font-bold text-slate-900">
-                  Access Your Private Ledger
+                  Access Your Earnings Ledger
                 </h2>
                 <p className="text-sm text-slate-500 leading-relaxed">
-                  Sign in with your Google account to unlock your Cloud Firestore expense records
-                  across phone, tablet, and PC.
+                  Sign in with your Google account to view your company&apos;s total receipt
+                  earnings across phone, tablet, and PC.
                 </p>
               </div>
 
