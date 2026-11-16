@@ -12,6 +12,7 @@ import {
   Pencil,
   AlertCircle,
   TrendingUp,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   EARNING_CATEGORIES,
@@ -21,6 +22,7 @@ import {
   type ReceiptRecord,
   type VaultUser,
 } from '../types/receipt';
+import { getApiUrl } from '../utils/api';
 import {
   exportReceiptsToCsv,
   formatBytes,
@@ -88,6 +90,7 @@ export const TaxDashboardView: React.FC<TaxDashboardViewProps> = ({
   const [isEditingModal, setIsEditingModal] = useState(false);
   const [modalEditFields, setModalEditFields] = useState<ExtractedReceiptFields | null>(null);
   const [isSavingModal, setIsSavingModal] = useState(false);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
 
   const inspectedReceipt = useMemo(
     () => (inspectedId ? receipts.find((r) => r.id === inspectedId) ?? null : null),
@@ -258,6 +261,7 @@ export const TaxDashboardView: React.FC<TaxDashboardViewProps> = ({
     setActionError(null);
     setConfirmDeleteId(null);
     setIsEditingModal(false);
+    setImageLoadFailed(false);
     setModalEditFields({
       merchant_name: receipt.merchant_name,
       receipt_date: receipt.receipt_date,
@@ -1186,12 +1190,25 @@ export const TaxDashboardView: React.FC<TaxDashboardViewProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 items-start">
                 <div className="sm:col-span-5 bg-slate-50 border border-slate-200 rounded-lg overflow-hidden aspect-[3/4] flex items-center justify-center">
-                  <img
-                    src={inspectedReceipt.imageUrl}
-                    alt={inspectedReceipt.merchant_name}
-                    referrerPolicy="no-referrer"
-                    className="w-full h-full object-contain"
-                  />
+                  {inspectedReceipt.imageUrl.startsWith('client-sha256://') || imageLoadFailed ? (
+                    <div className="p-4 text-center space-y-2">
+                      <ShieldCheck className="w-8 h-8 text-teal-700 mx-auto" />
+                      <p className="text-xs font-medium text-slate-700">
+                        SHA-256 Sealed Record
+                      </p>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        Original image bytes are stored offline or on the Express server.
+                      </p>
+                    </div>
+                  ) : (
+                    <img
+                      src={getApiUrl(inspectedReceipt.imageUrl)}
+                      alt={inspectedReceipt.merchant_name}
+                      referrerPolicy="no-referrer"
+                      onError={() => setImageLoadFailed(true)}
+                      className="w-full h-full object-contain"
+                    />
+                  )}
                 </div>
 
                 <div className="sm:col-span-7 space-y-4">
@@ -1453,13 +1470,15 @@ export const TaxDashboardView: React.FC<TaxDashboardViewProps> = ({
                 </button>
               )}
 
-              <a
-                href={`${inspectedReceipt.imageUrl}&download=1`}
-                className="min-h-[38px] px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download Sealed Original</span>
-              </a>
+              {!inspectedReceipt.imageUrl.startsWith('client-sha256://') && !imageLoadFailed && (
+                <a
+                  href={getApiUrl(`${inspectedReceipt.imageUrl}&download=1`)}
+                  className="min-h-[38px] px-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Sealed Original</span>
+                </a>
+              )}
             </div>
           </div>
         </div>

@@ -11,7 +11,8 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { auth } from '../firebase';
-import type { VerificationResult, VerificationStatus } from '../types/receipt';
+import type { ReceiptRecord, VerificationResult, VerificationStatus } from '../types/receipt';
+import { computeFileSha256, getApiUrl, parseApiJson, StaticHostError } from '../utils/api';
 import {
   formatBytes,
   formatCurrency,
@@ -65,7 +66,11 @@ function getStatusMeta(result: VerificationResult): {
   }
 }
 
-export const VerifyView: React.FC = () => {
+interface VerifyViewProps {
+  receipts: ReceiptRecord[];
+}
+
+export const VerifyView: React.FC<VerifyViewProps> = ({ receipts }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -98,20 +103,34 @@ export const VerifyView: React.FC = () => {
       const formData = new FormData();
       formData.append('receipt', file);
 
-      const response = await fetch('/api/receipts/verify', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: formData,
-      });
-
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || 'Verification request failed.');
+      let result: VerificationResult;
+      try {
+        const response = await fetch(getApiUrl('/api/receipts/verify'), {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: formData,
+        });
+        result = await parseApiJson<VerificationResult>(response);
+      } catch (apiErr) {
+        if (!(apiErr instanceof StaticHostError) && !(apiErr instanceof TypeError)) {
+          throw apiErr;
+        }
+        // Static host fallback (GitHub Pages): verify exact SHA-256 digest in browser
+        const computedHash = await computeFileSha256(file);
+        const exactMatch = receipts.find((r) => r.sha256Hash === computedHash) ?? null;
+        result = {
+          verified: Boolean(exactMatch),
+          status: exactMatch ? 'exact_match' : 'unverified',
+          computedHash,
+          checkedAtUtc: new Date().toISOString(),
+          fileName: file.name,
+          fileSizeBytes: file.size,
+          matchedReceipt: exactMatch,
+        };
       }
 
-      const result = payload as VerificationResult;
       setLatestResult(result);
       setHistory((prev) => [result, ...prev].slice(0, 8));
     } catch (err) {

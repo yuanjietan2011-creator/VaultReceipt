@@ -12,6 +12,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
+import { computeFileSha256, getApiUrl, parseApiJson, StaticHostError } from '../utils/api';
 import {
   EARNING_CATEGORIES,
   type EarningRecord,
@@ -99,20 +100,53 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
       const formData = new FormData();
       formData.append('receipt', file);
 
-      const response = await fetch('/api/receipts/scan', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: formData,
-      });
+      let data: ScanReceiptResponse;
+      let usedStaticFallback = false;
 
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || 'Failed to scan and seal receipt.');
+      try {
+        const response = await fetch(getApiUrl('/api/receipts/scan'), {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+          },
+          body: formData,
+        });
+        data = await parseApiJson<ScanReceiptResponse>(response);
+      } catch (apiErr) {
+        if (!(apiErr instanceof StaticHostError) && !(apiErr instanceof TypeError)) {
+          throw apiErr;
+        }
+        // Static host fallback (e.g., GitHub Pages without Express backend):
+        // compute SHA-256 in the browser and seal straight to Cloud Firestore.
+        usedStaticFallback = true;
+        const sha256Hash = await computeFileSha256(file);
+        const existing = receipts.find((r) => r.sha256Hash === sha256Hash);
+        if (existing) {
+          data = { receipt: existing, duplicate: true };
+        } else {
+          const baseName = file.name.replace(/\.[^.]+$/, '').trim() || 'Scanned Receipt';
+          data = {
+            duplicate: false,
+            receipt: {
+              id: crypto.randomUUID(),
+              userId: currentUser.uid,
+              sha256Hash,
+              uploadedAtUtc: new Date().toISOString(),
+              fileName: (file.name || 'receipt.png').slice(0, 255),
+              fileSizeBytes: Math.max(1, file.size),
+              mimeType: (file.type || 'image/jpeg').slice(0, 64),
+              imageUrl: 'client-sha256://sealed',
+              merchant_name: baseName.slice(0, 140),
+              receipt_date: new Date().toISOString().slice(0, 10),
+              currency: 'USD',
+              subtotal: 0,
+              gst_amount: 0,
+              total_amount: 0,
+              category: 'Client Services',
+            },
+          };
+        }
       }
-
-      const data = payload as ScanReceiptResponse;
 
       // Persist newly sealed receipt to Cloud Firestore
       if (!data.duplicate) {
@@ -143,6 +177,11 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
       }
 
       setSealedResult(data);
+      if (usedStaticFallback && !data.duplicate) {
+        setSaveMessage(
+          'Static host mode: SHA-256 sealed in browser. Enter Client, Earned (Without GST), and GST below, then click Save Field Adjustments.'
+        );
+      }
       setEditFields({
         merchant_name: data.receipt.merchant_name,
         receipt_date: data.receipt.receipt_date,
@@ -464,13 +503,16 @@ export const CaptureView: React.FC<CaptureViewProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-3 shrink-0">
-              <a
-                href={`${sealedResult.receipt.imageUrl}&download=1`}
-                className="min-h-[42px] px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download Sealed Original</span>
-              </a>
+              {sealedResult.receipt.imageUrl &&
+                !sealedResult.receipt.imageUrl.startsWith('client-sha256://') && (
+                  <a
+                    href={getApiUrl(`${sealedResult.receipt.imageUrl}&download=1`)}
+                    className="min-h-[42px] px-3.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download Sealed Original</span>
+                  </a>
+                )}
               <button
                 type="button"
                 onClick={onOpenLedger}

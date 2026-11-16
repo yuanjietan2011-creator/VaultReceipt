@@ -18,6 +18,7 @@ import { TaxDashboardView } from './components/TaxDashboardView';
 import { VaultAuthScreen } from './components/VaultAuthScreen';
 import { VerifyView } from './components/VerifyView';
 import { auth, db, handleFirestoreError, OperationType } from './firebase';
+import { getApiUrl } from './utils/api';
 import type {
   EarningInput,
   EarningRecord,
@@ -192,12 +193,15 @@ export default function App() {
     if (target && auth.currentUser) {
       try {
         const idToken = await auth.currentUser.getIdToken();
-        await fetch(`/api/receipts/${encodeURIComponent(id)}/image?hash=${target.sha256Hash}`, {
-          method: 'DELETE',
-          headers: {
-            Authorization: `Bearer ${idToken}`,
-          },
-        });
+        await fetch(
+          getApiUrl(`/api/receipts/${encodeURIComponent(id)}/image?hash=${target.sha256Hash}`),
+          {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${idToken}`,
+            },
+          }
+        );
       } catch {
         // Non-blocking image cleanup
       }
@@ -416,7 +420,7 @@ export default function App() {
             />
           )}
 
-          {activeTab === 'verify' && <VerifyView />}
+          {activeTab === 'verify' && <VerifyView receipts={receipts} />}
         </main>
       </div>
 

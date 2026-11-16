@@ -18,6 +18,10 @@ export const VaultAuthScreen: React.FC = () => {
         setError('Sign-in popup was closed before completing.');
       } else if (message.includes('popup-blocked')) {
         setError('Sign-in popup was blocked by your browser. Please allow popups and try again.');
+      } else if (message.includes('unauthorized-domain')) {
+        setError(
+          `Add "${window.location.hostname}" to Firebase Console → Authentication → Settings → Authorized domains to sign in from this URL.`
+        );
       } else {
         setError(message);
       }
